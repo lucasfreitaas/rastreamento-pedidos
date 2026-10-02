@@ -4,10 +4,12 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/joho/godotenv"
 	"go.uber.org/fx"
 )
 
@@ -23,6 +25,13 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	// Em desenvolvimento, lê o arquivo .env se ele existir. Variáveis já
+	// definidas no ambiente têm prioridade (godotenv.Load não sobrescreve),
+	// então em Docker/produção o .env simplesmente não é usado.
+	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return Config{}, fmt.Errorf("load .env: %w", err)
+	}
+
 	cfg := Config{
 		AppEnv:          getEnv("APP_ENV", "local"),
 		HTTPAddr:        getEnv("HTTP_ADDR", ":8080"),
@@ -56,7 +65,7 @@ func Load() (Config, error) {
 func (c Config) validate() error {
 	var errs []error
 	if c.DatabaseURL == "" {
-		errs = append(errs, errors.New("DATABASE_URL is required"))
+		errs = append(errs, errors.New("DATABASE_URL is required (defina no arquivo .env ou como variável de ambiente)"))
 	}
 	if c.HTTPAddr == "" {
 		errs = append(errs, errors.New("HTTP_ADDR cannot be empty"))
