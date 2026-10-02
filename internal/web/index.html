@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rastreamento de Pedidos</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --text: #1d2330; --muted: #6b7280; --border: #e3e6eb;
+    --primary: #2563eb; --primary-text: #fff; --danger: #dc2626; --ok: #16a34a;
+    --s-created: #64748b; --s-paid: #2563eb; --s-picking: #d97706; --s-shipped: #7c3aed;
+    --s-delivered: #16a34a; --s-canceled: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1218; --panel: #171b23; --text: #e6e8ec; --muted: #9aa3b2; --border: #2a303b;
+      --primary: #3b82f6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--panel); display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; margin: 0; }
+  .health { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.fail { background: var(--danger); }
+  main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px 24px; max-width: 1300px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .panel h2 { font-size: 15px; margin: 0 0 12px; }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  button { padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+  button:hover { filter: brightness(0.96); }
+  button.primary { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+  button.link { border: none; background: none; color: var(--primary); padding: 4px 0; }
+  .item-row { display: grid; grid-template-columns: 1fr 64px 90px 28px; gap: 6px; margin-bottom: 6px; }
+  .item-row button { padding: 0; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--bg); }
+  tbody tr.selected { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #fff; background: var(--s-created); }
+  .badge.PAID { background: var(--s-paid); } .badge.PICKING { background: var(--s-picking); }
+  .badge.SHIPPED { background: var(--s-shipped); } .badge.DELIVERED { background: var(--s-delivered); }
+  .badge.CANCELED { background: var(--s-canceled); }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .detail-grid { grid-template-columns: 1fr; } }
+  .timeline { list-style: none; padding: 0; margin: 0; }
+  .timeline li { padding: 6px 0 6px 16px; border-left: 2px solid var(--border); position: relative; }
+  .timeline li::before { content: ""; position: absolute; left: -5px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .log { max-height: 220px; overflow: auto; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .log div { padding: 4px 0; border-bottom: 1px dashed var(--border); white-space: pre-wrap; word-break: break-all; }
+  .log .err { color: var(--danger); }
+  .toast { position: fixed; bottom: 16px; right: 16px; padding: 10px 14px; border-radius: 8px; color: #fff; background: var(--danger); display: none; max-width: 420px; }
+  .toast.show { display: block; } .toast.ok { background: var(--ok); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rastreamento de Pedidos</h1>
+  <span class="muted">interface de teste da API</span>
+  <div class="health"><span id="health-dot" class="dot"></span><span id="health-text">verificando...</span></div>
+</header>
+
+<main>
+  <div class="stack">
+    <section class="panel">
+      <h2>Novo pedido</h2>
+      <form id="create-form">
+        <label for="customer">Cliente</label>
+        <input id="customer" value="cliente-1" required>
+        <div style="margin-top:12px">
+          <label>Itens (SKU, qtd, preço R$)</label>
+          <div id="items"></div>
+          <button type="button" class="link" id="add-item">+ adicionar item</button>
+        </div>
+        <div class="row" style="margin-top:12px; justify-content:space-between">
+          <span class="muted">Total: <strong id="form-total">R$ 0,00</strong></span>
+          <button type="submit" class="primary">Criar pedido</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Log de requisições</h2>
+      <div id="log" class="log"><div class="muted">As chamadas feitas pela página aparecem aqui.</div></div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="row" style="justify-content:space-between; margin-bottom:12px">
+        <h2 style="margin:0">Pedidos</h2>
+        <div class="row">
+          <select id="filter" style="width:auto">
+            <option value="">Todos os status</option>
+            <option>CREATED</option><option>PAID</option><option>PICKING</option>
+            <option>SHIPPED</option><option>DELIVERED</option><option>CANCELED</option>
+          </select>
+          <button id="refresh">Atualizar</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Cliente</th><th>Status</th><th>Total</th><th>Criado em</th></tr></thead>
+        <tbody id="orders"></tbody>
+      </table>
+      <div id="orders-empty" class="empty" hidden>Nenhum pedido encontrado.</div>
+    </section>
+
+    <section class="panel" id="detail" hidden>
+      <h2>Pedido <span id="d-id" class="mono"></span></h2>
+      <div class="detail-grid">
+        <div>
+          <p>Status atual: <span id="d-status" class="badge"></span></p>
+          <p class="muted" style="margin:0 0 8px">Próximos status permitidos (vindos da API):</p>
+          <div id="d-actions" class="actions"></div>
+          <h3 style="font-size:13px; margin:16px 0 6px">Itens</h3>
+          <table><thead><tr><th>SKU</th><th>Qtd</th><th>Unitário</th><th>Subtotal</th></tr></thead><tbody id="d-items"></tbody></table>
+        </div>
+        <div>
+          <h3 style="font-size:13px; margin:0 0 6px">Histórico</h3>
+          <ul id="d-history" class="timeline"></ul>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const fmtDate = (iso) => new Date(iso).toLocaleString("pt-BR");
+const $ = (id) => document.getElementById(id);
+let selectedId = null;
+
+// Cria elementos com textContent (nunca innerHTML com dados da API),
+// evitando injeção de HTML.
+function el(tag, props = {}, ...children) {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  for (const c of children) e.append(c);
+  return e;
+}
+
+function toast(msg, ok = false) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (ok ? " ok" : "");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.className = "toast"), 3500);
+}
+
+function logLine(text, isErr) {
+  const log = $("log");
+  if (log.firstChild && log.firstChild.classList.contains("muted")) log.innerHTML = "";
+  log.prepend(el("div", { textContent: text, className: isErr ? "err" : "" }));
+}
+
+// Wrapper de fetch: registra método, rota, status e duração no log.
+async function api(method, path, body) {
+  const start = performance.now();
+  const res = await fetch(path, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const ms = Math.round(performance.now() - start);
+  const data = await res.json().catch(() => null);
+  const reqId = res.headers.get("X-Request-ID") || "";
+  logLine(`${method} ${path} → ${res.status} (${ms}ms) ${reqId.slice(0, 8)}` +
+    (!res.ok && data?.error ? `\n  ${data.error.code}: ${data.error.message}` : ""), !res.ok);
+  if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+  return data;
+}
+
+// ---------- formulário ----------
+function addItemRow(sku = "", qty = 1, price = "") {
+  const row = el("div", { className: "item-row" },
+    el("input", { placeholder: "SKU", value: sku, required: true }),
+    el("input", { type: "number", min: 1, value: qty, required: true }),
+    el("input", { type: "number", min: 0, step: "0.01", placeholder: "0,00", value: price, required: true }),
+    el("button", { type: "button", textContent: "×", title: "remover", onclick: () => { row.remove(); updateTotal(); } }),
+  );
+  row.addEventListener("input", updateTotal);
+  $("items").append(row);
+  updateTotal();
+}
+
+function readItems() {
+  return [...$("items").children].map((row) => {
+    const [sku, qty, price] = row.querySelectorAll("input");
+    return {
+      sku: sku.value.trim(),
+      quantity: parseInt(qty.value, 10) || 0,
+      // A API trabalha em centavos para evitar erro de arredondamento com float.
+      unit_price_cents: Math.round(parseFloat(price.value || "0") * 100),
+    };
+  });
+}
+
+function updateTotal() {
+  const total = readItems().reduce((s, i) => s + i.quantity * i.unit_price_cents, 0);
+  $("form-total").textContent = brl.format(total / 100);
+}
+
+$("add-item").onclick = () => addItemRow();
+$("create-form").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const order = await api("POST", "/orders", { customer_id: $("customer").value, items: readItems() });
+    toast("Pedido criado", true);
+    selectedId = order.id;
+    await loadOrders();
+    await loadDetail(order.id);
+  } catch (err) { toast(err.message); }
+};
+
+// ---------- listagem ----------
+async function loadOrders() {
+  const status = $("filter").value;
+  const q = status ? `?status=${encodeURIComponent(status)}&limit=50` : "?limit=50";
+  try {
+    const { data } = await api("GET", "/orders" + q);
+    const tbody = $("orders");
+    tbody.replaceChildren(...data.map((o) => {
+      const tr = el("tr", { className: o.id === selectedId ? "selected" : "", onclick: () => loadDetail(o.id) },
+        el("td", { className: "mono", textContent: o.id.slice(0, 8) }),
+        el("td", { textContent: o.customer_id }),
+        el("td", {}, el("span", { className: "badge " + o.status, textContent: o.status })),
+        el("td", { textContent: brl.format(o.total_cents / 100) }),
+        el("td", { className: "muted", textContent: fmtDate(o.created_at) }),
+      );
+      return tr;
+    }));
+    $("orders-empty").hidden = data.length > 0;
+  } catch (err) { toast(err.message); }
+}
+
+$("filter").onchange = loadOrders;
+$("refresh").onclick = loadOrders;
+
+// ---------- detalhe ----------
+async function loadDetail(id) {
+  selectedId = id;
+  try {
+    const [order, history] = await Promise.all([
+      api("GET", `/orders/${id}`),
+      api("GET", `/orders/${id}/history`),
+    ]);
+    renderDetail(order, history.data);
+    [...$("orders").children].forEach((tr) =>
+      tr.classList.toggle("selected", tr.firstChild.textContent === id.slice(0, 8)));
+  } catch (err) { toast(err.message); }
+}
+
+function renderDetail(o, history) {
+  $("detail").hidden = false;
+  $("d-id").textContent = o.id;
+  $("d-status").textContent = o.status;
+  $("d-status").className = "badge " + o.status;
+
+  const actions = $("d-actions");
+  if (o.next_statuses.length === 0) {
+    actions.replaceChildren(el("span", { className: "muted", textContent: "Status final, sem transições." }));
+  } else {
+    actions.replaceChildren(...o.next_statuses.map((s) =>
+      el("button", { textContent: "→ " + s, onclick: () => changeStatus(o.id, s) })));
+  }
+  // Botão proposital para ver a API recusando uma transição inválida (409).
+  if (o.status !== "DELIVERED") {
+    actions.append(el("button", {
+      textContent: "Testar transição inválida",
+      title: "Envia DELIVERED direto para ver o erro 409",
+      onclick: () => changeStatus(o.id, "DELIVERED"),
+    }));
+  }
+
+  $("d-items").replaceChildren(...o.items.map((i) => el("tr", {},
+    el("td", { textContent: i.sku }),
+    el("td", { textContent: i.quantity }),
+    el("td", { textContent: brl.format(i.unit_price_cents / 100) }),
+    el("td", { textContent: brl.format((i.quantity * i.unit_price_cents) / 100) }),
+  )));
+
+  $("d-history").replaceChildren(...history.map((h) => el("li", {},
+    el("strong", { textContent: (h.from ? h.from + " → " : "") + h.to }),
+    el("div", { className: "muted", textContent: fmtDate(h.occurred_at) }),
+  )));
+}
+
+async function changeStatus(id, status) {
+  try {
+    await api("PATCH", `/orders/${id}/status`, { status });
+    toast(`Status alterado para ${status}`, true);
+    await Promise.all([loadOrders(), loadDetail(id)]);
+  } catch (err) { toast(err.message); }
+}
+
+// ---------- health ----------
+async function checkHealth() {
+  try {
+    const res = await fetch("/readyz");
+    $("health-dot").className = "dot " + (res.ok ? "ok" : "fail");
+    $("health-text").textContent = res.ok ? "API e banco ok" : "banco indisponível";
+  } catch {
+    $("health-dot").className = "dot fail";
+    $("health-text").textContent = "API fora do ar";
+  }
+}
+
+addItemRow("TECLADO-01", 2, "150.00");
+addItemRow("MOUSE-02", 1, "89.90");
+loadOrders();
+checkHealth();
+setInterval(checkHealth, 10000);
+</script>
+</body>
+</html>

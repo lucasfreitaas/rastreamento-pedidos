@@ -1,0 +1,15 @@
+# Binários
+/bin/
+*.exe
+/order-api
+
+# Testes
+coverage.out
+coverage.html
+
+# Variáveis locais (nunca versionar segredos)
+.env
+
+# IDEs
+.idea/
+.vscode/

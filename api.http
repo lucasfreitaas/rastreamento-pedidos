@@ -1,0 +1,43 @@
+### Requisições de exemplo (extensão "REST Client" do VS Code ou HTTP Client do GoLand)
+@baseUrl = http://localhost:8080
+
+### Health
+GET {{baseUrl}}/healthz
+
+### Readiness (verifica o banco)
+GET {{baseUrl}}/readyz
+
+### Criar pedido
+# @name createOrder
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "customer_id": "customer-1",
+  "items": [
+    { "sku": "KB-001", "quantity": 2, "unit_price_cents": 15000 },
+    { "sku": "MS-002", "quantity": 1, "unit_price_cents": 8990 }
+  ]
+}
+
+### Buscar pedido
+@orderId = {{createOrder.response.body.id}}
+GET {{baseUrl}}/orders/{{orderId}}
+
+### Listar pedidos (filtros opcionais: status, limit, offset)
+GET {{baseUrl}}/orders?status=CREATED&limit=10
+
+### Mudar status
+PATCH {{baseUrl}}/orders/{{orderId}}/status
+Content-Type: application/json
+
+{ "status": "PAID" }
+
+### Transição inválida (espera 409)
+PATCH {{baseUrl}}/orders/{{orderId}}/status
+Content-Type: application/json
+
+{ "status": "DELIVERED" }
+
+### Histórico de status
+GET {{baseUrl}}/orders/{{orderId}}/history
